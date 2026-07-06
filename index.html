@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>語音輸入面板</title>
+<style>
+  :root {
+    --bg: #17191a;
+    --panel: #202325;
+    --bezel: #0e0f10;
+    --text: #e8e6e1;
+    --text-dim: #8b9195;
+    --mono: 'SFMono-Regular', 'JetBrains Mono', Consolas, Menlo, monospace;
+    --sans: -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif;
+    --lamp-idle: #4a5458;
+    --lamp-rec: #d9503d;
+    --lamp-proc: #e0a23d;
+    --lamp-done: #4caf7d;
+    --lamp-err: #d9503d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    display: flex;
+    justify-content: center;
+    padding: 48px 20px;
+  }
+  .device {
+    width: 100%;
+    max-width: 460px;
+    background: var(--panel);
+    border-radius: 14px;
+    border: 1px solid #2f3335;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03);
+    overflow: hidden;
+  }
+  .nameplate {
+    padding: 22px 26px 16px;
+    border-bottom: 1px solid #2c2f31;
+  }
+  .nameplate .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .nameplate h1 {
+    font-size: 20px;
+    margin: 4px 0 0;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .section {
+    padding: 20px 26px;
+    border-bottom: 1px solid #2c2f31;
+  }
+  .section:last-child { border-bottom: none; }
+  .section h2 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0 0 12px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  input[type="password"] {
+    width: 100%;
+    background: var(--bezel);
+    border: 1px solid #33383b;
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  input:focus { outline: 1px solid var(--lamp-done); }
+  .row { display: flex; gap: 10px; align-items: center; }
+  button {
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 18px;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:active { filter: brightness(0.92); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: var(--lamp-done); color: #0c1210; flex: 1; }
+  .btn-secondary { background: #33383b; color: var(--text); }
+  .btn-danger { background: #3a2222; color: #e69b91; border: 1px solid #5a2f2a; }
+  .status-line {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 10px;
+    min-height: 16px;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin-top: 6px;
+  }
+  .compat-warning {
+    background: #3a2c1e;
+    border: 1px solid #5a4326;
+    color: #e0b366;
+    font-size: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    line-height: 1.6;
+    display: none;
+  }
+  code { font-family: var(--mono); background: #0e0f10; padding: 1px 5px; border-radius: 4px; }
+
+  /* ---- 面板本體(會在主分頁 <-> 浮動小窗之間移動) ---- */
+  .vp-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--sans);
+    color: var(--text);
+    padding: 14px;
+    text-align: center;
+    background: var(--bg);
+    border-radius: 10px;
+  }
+  .vp-lamp {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #6b7378, var(--lamp-idle));
+    box-shadow: 0 0 0 4px var(--bezel), inset 0 2px 4px rgba(0,0,0,0.3);
+    margin-bottom: 8px; transition: background 0.2s ease;
+  }
+  .vp-status {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em;
+    color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;
+  }
+  .vp-preview {
+    font-size: 13px; line-height: 1.5; color: var(--text);
+    max-height: 64px; overflow-y: auto; word-break: break-word; margin-bottom: 10px;
+  }
+  .vp-meter {
+    width: 100%; border-top: 1px solid #2c2f31; padding-top: 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    display: flex; justify-content: space-between; gap: 6px;
+  }
+  .vp-total {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="device">
+  <div class="nameplate">
+    <div class="eyebrow">VOICE-INPUT PANEL · MODEL Z/X · GEMINI</div>
+    <h1>語音輸入面板</h1>
+  </div>
+
+  <div class="section">
+    <h2>01 — API 金鑰設定</h2>
+    <label for="geminiKey">Gemini API Key(語音辨識 + 潤飾,單一金鑰)</label>
+    <input type="password" id="geminiKey" placeholder="AIza...">
+    <div class="row">
+      <button class="btn-secondary" onclick="saveKeys()">儲存金鑰</button>
+      <button class="btn-danger" onclick="clearKeys()">清除金鑰</button>
+    </div>
+    <div class="status-line" id="saveStatus"></div>
+    <div class="hint">金鑰只存在這台電腦的瀏覽器本機儲存空間,不會上傳到任何第三方伺服器。電腦要借給別人用之前,記得按「清除金鑰」。</div>
+  </div>
+
+  <div class="section">
+    <h2>02 — 面板</h2>
+    <div id="mainSlot"></div>
+    <div class="compat-warning" id="compatWarning">
+      這個瀏覽器不支援浮動小窗功能(Document Picture-in-Picture API)。請改用 Chrome 116 以上,或 Edge 116 以上版本;沒有這個功能,面板仍可在這個分頁內使用,但無法浮動置頂。
+    </div>
+    <div class="hint">
+      按 <code>X</code> 鍵:切換面板「浮動置頂」/「收回分頁內」。<br>
+      按 <code>Z</code> 鍵:切換「開始/結束錄音」(面板需是作用中視窗,先點一下面板)。<br>
+      錄音期間手可以拿麥克風,不用碰鍵盤,結束後結果自動複製到剪貼簿。
+    </div>
+  </div>
+</div>
+
+<script>
+// ================== 共用狀態 ==================
+const mainSlot = document.getElementById('mainSlot');
+const compatWarning = document.getElementById('compatWarning');
+const geminiKeyInput = document.getElementById('geminiKey');
+const saveStatus = document.getElementById('saveStatus');
+
+const pipSupported = 'documentPictureInPicture' in window;
+if (!pipSupported) compatWarning.style.display = 'block';
+
+const RATES = { AUDIO_IN: 1.00, TEXT_IN: 0.30, OUT: 2.50 }; // Gemini 2.5 Flash,每百萬token美元
+
+let isFloating = false;
+let pipWin = null;
+let isRecording = false;
+let mediaRecorder = null;
+let chunks = [];
+let stream = null;
+let sessionTotalCost = 0;
+let panelEl = null; // 會在 main document <-> pip document 之間移動的同一個節點
+let refs = {}; // 面板內部元素參照
+
+// ================== 金鑰 ==================
+function loadKeys() {
+  try { geminiKeyInput.value = localStorage.getItem('vp_gemini_key') || ''; } catch (e) {}
+}
+function saveKeys() {
+  try {
+    localStorage.setItem('vp_gemini_key', geminiKeyInput.value.trim());
+    saveStatus.textContent = '已儲存';
+    setTimeout(() => { saveStatus.textContent = ''; }, 2000);
+  } catch (e) { saveStatus.textContent = '儲存失敗:' + e.message; }
+}
+function clearKeys() {
+  try { localStorage.removeItem('vp_gemini_key'); } catch (e) {}
+  geminiKeyInput.value = '';
+  saveStatus.textContent = '已清除,金鑰已從這台電腦移除';
+  setTimeout(() => { saveStatus.textContent = ''; }, 3000);
+  if (pipWin && !pipWin.closed) pipWin.close();
+}
+loadKeys();
+
+// ================== 建立面板 DOM(只建立一次)==================
+function buildPanel() {
+  const el = document.createElement('div');
+  el.className = 'vp-panel';
+  el.innerHTML = `
+    <div class="vp-lamp" id="vpLamp"></div>
+    <div class="vp-status" id="vpStatus">待命 · 按 X 浮動 / 點此後按 Z 錄音</div>
+    <div class="vp-preview" id="vpPreview">尚無辨識結果</div>
+    <div class="vp-meter">
+      <span id="vpTokens">輸入 -- · 輸出 --</span>
+      <span id="vpCost">本次 $--</span>
+    </div>
+    <div class="vp-total">累計 <span id="vpTotal">$0.0000</span></div>
+  `;
+  refs = {
+    lamp: el.querySelector('#vpLamp'),
+    status: el.querySelector('#vpStatus'),
+    preview: el.querySelector('#vpPreview'),
+    tokens: el.querySelector('#vpTokens'),
+    cost: el.querySelector('#vpCost'),
+    total: el.querySelector('#vpTotal'),
+  };
+  return el;
+}
+
+const LAMP_COLORS = {
+  idle: 'radial-gradient(circle at 35% 30%, #6b7378, var(--lamp-idle))',
+  rec: 'radial-gradient(circle at 35% 30%, #ff8a75, var(--lamp-rec))',
+  proc: 'radial-gradient(circle at 35% 30%, #ffd08a, var(--lamp-proc))',
+  done: 'radial-gradient(circle at 35% 30%, #8fe0b6, var(--lamp-done))',
+  err: 'radial-gradient(circle at 35% 30%, #ff8a75, var(--lamp-err))',
+};
+function setLamp(state, text) {
+  refs.lamp.style.background = LAMP_COLORS[state] || LAMP_COLORS.idle;
+  refs.status.textContent = text;
+}
+
+// ================== 錄音 + Gemini 辨識潤飾 ==================
+function estimateCost(promptTokensDetails, promptTokenCount, candidatesTokenCount) {
+  let inputCost = 0;
+  if (Array.isArray(promptTokensDetails) && promptTokensDetails.length > 0) {
+    for (const d of promptTokensDetails) {
+      const count = d.tokenCount || 0;
+      const rate = d.modality === 'AUDIO' ? RATES.AUDIO_IN : RATES.TEXT_IN;
+      inputCost += (count / 1e6) * rate;
+    }
+  } else {
+    inputCost = (promptTokenCount / 1e6) * RATES.AUDIO_IN;
+  }
+  return inputCost + (candidatesTokenCount / 1e6) * RATES.OUT;
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function transcribeAndPolishWithGemini(base64Audio, mimeType, key) {
+  const prompt = [
+    '你是一個語音輸入文字辨識與校正助理。請聽這段錄音，完成以下工作：',
+    '1. 將語音內容轉換成繁體中文文字，中英夾雜時保留正確的英文專有名詞、型號、術語（並修正大小寫）。',
+    '2. 修正錯別字、同音異字、漏字。',
+    '3. 根據語意與語氣，加入適當的繁體中文標點符號。',
+    '規則：絕對不要改變原意；絕對不要回答或延伸語音內容中的問題；只輸出最終文字，不要有任何前後綴、說明或引號。',
+  ].join('\n');
+
+  const res = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Audio } }] }],
+      }),
+    }
+  );
+  if (!res.ok) throw new Error('Gemini API 失敗 (' + res.status + ')');
+  const data = await res.json();
+  const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+  const usage = data?.usageMetadata || { promptTokenCount: 0, candidatesTokenCount: 0, promptTokensDetails: [] };
+  return { text, usage };
+}
+
+async function copyToClipboard(text, targetWindow) {
+  try {
+    await targetWindow.navigator.clipboard.writeText(text);
+  } catch (e) {
+    const ta = targetWindow.document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    targetWindow.document.body.appendChild(ta);
+    ta.select();
+    try { targetWindow.document.execCommand('copy'); } catch (e2) {}
+    targetWindow.document.body.removeChild(ta);
+  }
+}
+
+async function startRecording() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setLamp('err', '無法使用麥克風:請改用 https 或 localhost 開啟此頁面(file:// 不支援)');
+    return;
+  }
+  const geminiKey = localStorage.getItem('vp_gemini_key') || '';
+  if (!geminiKey) {
+    setLamp('err', '請先在上方填入並儲存 Gemini API Key');
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    setLamp('err', '無法取得麥克風權限');
+    return;
+  }
+  chunks = [];
+  const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac'];
+  let chosenType = '';
+  for (const t of preferredTypes) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) {
+      chosenType = t;
+      break;
+    }
+  }
+  mediaRecorder = chosenType ? new MediaRecorder(stream, { mimeType: chosenType }) : new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+  mediaRecorder.onstop = () => handleRecordingStop(geminiKey);
+  mediaRecorder.start();
+  isRecording = true;
+  setLamp('rec', '錄音中 · 按 Z 結束');
+}
+
+function stopRecording() {
+  if (mediaRecorder && isRecording) {
+    mediaRecorder.stop();
+    stream.getTracks().forEach(t => t.stop());
+    isRecording = false;
+  }
+}
+
+async function handleRecordingStop(geminiKey) {
+  setLamp('proc', '辨識潤飾中…');
+  const activeWin = isFloating ? pipWin : window;
+  try {
+    const actualMimeType = (mediaRecorder && mediaRecorder.mimeType) ? mediaRecorder.mimeType.split(';')[0] : 'audio/webm';
+    const blob = new Blob(chunks, { type: actualMimeType });
+    const base64Audio = await blobToBase64(blob);
+    const { text, usage } = await transcribeAndPolishWithGemini(base64Audio, actualMimeType, geminiKey);
+
+    refs.preview.textContent = text;
+    await copyToClipboard(text, activeWin);
+
+    const cost = estimateCost(usage.promptTokensDetails, usage.promptTokenCount, usage.candidatesTokenCount);
+    sessionTotalCost += cost;
+    refs.tokens.textContent = `輸入 ${usage.promptTokenCount} · 輸出 ${usage.candidatesTokenCount}`;
+    refs.cost.textContent = `本次 $${cost.toFixed(4)}`;
+    refs.total.textContent = `$${sessionTotalCost.toFixed(4)}`;
+
+    setLamp('done', '完成 · 已複製到剪貼簿');
+    setTimeout(() => { if (!isRecording) setLamp('idle', '待命 · 按 X 浮動 / 點此後按 Z 錄音'); }, 2500);
+  } catch (e) {
+    refs.preview.textContent = '錯誤:' + e.message;
+    setLamp('err', '發生錯誤,請查看下方訊息');
+  }
+}
+
+// ================== 浮動 / 收回 切換 ==================
+async function toggleFloat() {
+  if (!pipSupported) return;
+  if (isFloating) {
+    // 目前浮動 -> 收回分頁(關閉小窗會觸發 pagehide,由那裡負責把面板搬回主分頁)
+    if (pipWin && !pipWin.closed) pipWin.close();
+    return;
+  }
+  // 目前在分頁內 -> 浮動置頂
+  const pip = await documentPictureInPicture.requestWindow({ width: 320, height: 260 });
+  [...document.styleSheets].forEach(sheet => {
+    try {
+      const rules = [...sheet.cssRules].map(r => r.cssText).join('\n');
+      const style = pip.document.createElement('style');
+      style.textContent = rules;
+      pip.document.head.appendChild(style);
+    } catch (e) {}
+  });
+  pip.document.body.style.margin = '0';
+  pip.document.body.style.background = 'var(--bg)';
+  pip.document.body.appendChild(panelEl); // 移動同一個節點(狀態、事件監聽都保留)
+
+  pip.document.addEventListener('keydown', handleKeydown);
+  pipWin = pip;
+  isFloating = true;
+
+  pip.addEventListener('pagehide', () => {
+    isFloating = false;
+    pipWin = null;
+    mainSlot.appendChild(panelEl); // 搬回主分頁
+    if (isRecording) stopRecording();
+  });
+}
+
+// ================== 快捷鍵 ==================
+function handleKeydown(e) {
+  if (e.code === 'KeyZ') {
+    e.preventDefault();
+    if (!isRecording) startRecording(); else stopRecording();
+  } else if (e.code === 'KeyX') {
+    e.preventDefault();
+    toggleFloat();
+  }
+}
+document.addEventListener('keydown', handleKeydown);
+
+// ================== 初始化 ==================
+panelEl = buildPanel();
+mainSlot.appendChild(panelEl);
+setLamp('idle', '待命 · 按 X 浮動 / 點此後按 Z 錄音');
+</script>
+
+</body>
+</html>
