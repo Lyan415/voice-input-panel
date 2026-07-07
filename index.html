@@ -163,6 +163,46 @@
   .vp-total {
     font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 4px;
   }
+  .vp-translate {
+    width: 100%;
+    border-top: 1px solid #2c2f31;
+    padding-top: 8px;
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vp-translate textarea {
+    width: 100%;
+    background: var(--bezel);
+    border: 1px solid #33383b;
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 6px 8px;
+    resize: none;
+    min-height: 40px;
+    box-sizing: border-box;
+  }
+  .vp-translate textarea:focus { outline: 1px solid var(--lamp-done); }
+  .vp-translate-btn {
+    align-self: flex-end;
+    background: var(--lamp-done);
+    color: #0c1210;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .vp-translate-btn:hover { filter: brightness(1.12); }
+  .vp-translate-hint {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
 </style>
 </head>
 <body>
@@ -254,6 +294,11 @@ function buildPanel() {
       <span id="vpCost">本次 $--</span>
     </div>
     <div class="vp-total">累計 <span id="vpTotal">$0.0000</span></div>
+    <div class="vp-translate">
+      <div class="vp-translate-hint">中譯英 / 英譯中 · 輸入後按 Enter 或點按鈕</div>
+      <textarea id="vpTranslateInput" placeholder="貼上或輸入文字…"></textarea>
+      <button class="vp-translate-btn" id="vpTranslateBtn" type="button">翻譯並複製</button>
+    </div>
   `;
   refs = {
     lamp: el.querySelector('#vpLamp'),
@@ -262,7 +307,18 @@ function buildPanel() {
     tokens: el.querySelector('#vpTokens'),
     cost: el.querySelector('#vpCost'),
     total: el.querySelector('#vpTotal'),
+    translateInput: el.querySelector('#vpTranslateInput'),
+    translateBtn: el.querySelector('#vpTranslateBtn'),
   };
+  // 輸入框內打字時不要觸發 Z/X 全域快捷鍵；Enter 送出翻譯（Shift+Enter 換行）
+  refs.translateInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      doTranslate();
+    }
+  });
+  refs.translateBtn.addEventListener('click', doTranslate);
   return el;
 }
 
@@ -279,7 +335,7 @@ function setLamp(state, text) {
 }
 
 // ================== 錄音 + Gemini 辨識潤飾 ==================
-function estimateCost(promptTokensDetails, promptTokenCount, candidatesTokenCount) {
+function estimateCost(promptTokensDetails, promptTokenCount, candidatesTokenCount, defaultInputRate = RATES.AUDIO_IN) {
   let inputCost = 0;
   if (Array.isArray(promptTokensDetails) && promptTokensDetails.length > 0) {
     for (const d of promptTokensDetails) {
@@ -288,7 +344,7 @@ function estimateCost(promptTokensDetails, promptTokenCount, candidatesTokenCoun
       inputCost += (count / 1e6) * rate;
     }
   } else {
-    inputCost = (promptTokenCount / 1e6) * RATES.AUDIO_IN;
+    inputCost = (promptTokenCount / 1e6) * defaultInputRate;
   }
   return inputCost + (candidatesTokenCount / 1e6) * RATES.OUT;
 }
@@ -410,6 +466,60 @@ async function handleRecordingStop(geminiKey) {
   }
 }
 
+async function translateWithGemini(text, direction, key) {
+  const prompt = direction === 'zh2en'
+    ? '請將以下文字翻譯成通順、專業的英文（若內容已包含英文可直接保留），只輸出翻譯結果本身，不要加任何說明、引號或前後綴：\n\n' + text
+    : '請將以下英文翻譯成語氣自然的繁體中文，只輸出翻譯結果本身，不要加任何說明、引號或前後綴：\n\n' + text;
+
+  const res = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    }
+  );
+  if (!res.ok) throw new Error('Gemini API 失敗 (' + res.status + ')');
+  const data = await res.json();
+  const outText = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+  const usage = data?.usageMetadata || { promptTokenCount: 0, candidatesTokenCount: 0, promptTokensDetails: [] };
+  return { text: outText, usage };
+}
+
+async function doTranslate() {
+  const geminiKey = localStorage.getItem('vp_gemini_key') || '';
+  if (!geminiKey) {
+    setLamp('err', '請先在上方填入並儲存 Gemini API Key');
+    return;
+  }
+  const raw = refs.translateInput.value.trim();
+  if (!raw) return;
+
+  const hasChinese = /[\u4e00-\u9fff]/.test(raw);
+  const direction = hasChinese ? 'zh2en' : 'en2zh';
+  setLamp('proc', direction === 'zh2en' ? '翻譯成英文中…' : '翻譯成中文中…');
+
+  try {
+    const { text, usage } = await translateWithGemini(raw, direction, geminiKey);
+    refs.preview.textContent = text;
+    const activeWin = isFloating ? pipWin : window;
+    await copyToClipboard(text, activeWin);
+
+    const cost = estimateCost(usage.promptTokensDetails, usage.promptTokenCount, usage.candidatesTokenCount, RATES.TEXT_IN);
+    sessionTotalCost += cost;
+    refs.tokens.textContent = `輸入 ${usage.promptTokenCount} · 輸出 ${usage.candidatesTokenCount}`;
+    refs.cost.textContent = `本次 $${cost.toFixed(4)}`;
+    refs.total.textContent = `$${sessionTotalCost.toFixed(4)}`;
+
+    setLamp('done', direction === 'zh2en' ? '完成 · 英文翻譯已複製' : '完成 · 中文翻譯已複製');
+    refs.translateInput.value = '';
+    setTimeout(() => { if (!isRecording) setLamp('idle', '待命 · 按 X 浮動 / 點此後按 Z 錄音'); }, 2500);
+  } catch (e) {
+    refs.preview.textContent = '錯誤:' + e.message;
+    setLamp('err', '發生錯誤,請查看下方訊息');
+  }
+}
+
 // ================== 浮動 / 收回 切換 ==================
 async function toggleFloat() {
   if (!pipSupported) return;
@@ -419,7 +529,7 @@ async function toggleFloat() {
     return;
   }
   // 目前在分頁內 -> 浮動置頂
-  const pip = await documentPictureInPicture.requestWindow({ width: 320, height: 260 });
+  const pip = await documentPictureInPicture.requestWindow({ width: 320, height: 380 });
   [...document.styleSheets].forEach(sheet => {
     try {
       const rules = [...sheet.cssRules].map(r => r.cssText).join('\n');
@@ -446,6 +556,8 @@ async function toggleFloat() {
 
 // ================== 快捷鍵 ==================
 function handleKeydown(e) {
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'TEXTAREA' || tag === 'INPUT') return; // 輸入框內打字時,不觸發 Z/X 快捷鍵
   if (e.code === 'KeyZ') {
     e.preventDefault();
     if (!isRecording) startRecording(); else stopRecording();
