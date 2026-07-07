@@ -136,41 +136,41 @@
     justify-content: center;
     font-family: var(--sans);
     color: var(--text);
-    padding: 14px;
+    padding: 10px 14px;
     text-align: center;
     background: var(--bg);
     border-radius: 10px;
   }
   .vp-lamp {
-    width: 44px; height: 44px; border-radius: 50%;
+    width: 34px; height: 34px; border-radius: 50%;
     background: radial-gradient(circle at 35% 30%, #6b7378, var(--lamp-idle));
-    box-shadow: 0 0 0 4px var(--bezel), inset 0 2px 4px rgba(0,0,0,0.3);
-    margin-bottom: 8px; transition: background 0.2s ease;
+    box-shadow: 0 0 0 3px var(--bezel), inset 0 2px 4px rgba(0,0,0,0.3);
+    margin-bottom: 5px; transition: background 0.2s ease;
   }
   .vp-status {
-    font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em;
-    color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em;
+    color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;
   }
   .vp-preview {
-    font-size: 13px; line-height: 1.5; color: var(--text);
-    max-height: 64px; overflow-y: auto; word-break: break-word; margin-bottom: 10px;
+    font-size: 12px; line-height: 1.4; color: var(--text);
+    max-height: 42px; overflow-y: auto; word-break: break-word; margin-bottom: 6px;
   }
   .vp-meter {
-    width: 100%; border-top: 1px solid #2c2f31; padding-top: 8px;
-    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    width: 100%; border-top: 1px solid #2c2f31; padding-top: 5px;
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
     display: flex; justify-content: space-between; gap: 6px;
   }
   .vp-total {
-    font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 4px;
+    font-family: var(--mono); font-size: 9px; color: var(--text-dim); margin-top: 2px;
   }
   .vp-translate {
     width: 100%;
     border-top: 1px solid #2c2f31;
-    padding-top: 8px;
-    margin-top: 10px;
+    padding-top: 6px;
+    margin-top: 6px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
   }
   .vp-translate textarea {
     width: 100%;
@@ -179,27 +179,42 @@
     border-radius: 6px;
     color: var(--text);
     font-family: var(--mono);
-    font-size: 12px;
-    padding: 6px 8px;
+    font-size: 11px;
+    padding: 4px 6px;
     resize: none;
-    min-height: 40px;
+    min-height: 26px;
     box-sizing: border-box;
   }
   .vp-translate textarea:focus { outline: 1px solid var(--lamp-done); }
+  .vp-translate-row {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+  }
   .vp-translate-btn {
-    align-self: flex-end;
     background: var(--lamp-done);
     color: #0c1210;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    padding: 6px 14px;
+    padding: 4px 10px;
     border: none;
     border-radius: 6px;
     cursor: pointer;
   }
   .vp-translate-btn:hover { filter: brightness(1.12); }
+  .vp-clear-btn {
+    background: #33383b;
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .vp-clear-btn:hover { filter: brightness(1.15); }
   .vp-translate-hint {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-dim);
     font-family: var(--mono);
   }
@@ -295,9 +310,12 @@ function buildPanel() {
     </div>
     <div class="vp-total">累計 <span id="vpTotal">$0.0000</span></div>
     <div class="vp-translate">
-      <div class="vp-translate-hint">中譯英 / 英譯中 · 輸入後按 Enter 或點按鈕</div>
+      <div class="vp-translate-hint">中譯英 / 英譯中 · Enter 送出</div>
       <textarea id="vpTranslateInput" placeholder="貼上或輸入文字…"></textarea>
-      <button class="vp-translate-btn" id="vpTranslateBtn" type="button">翻譯並複製</button>
+      <div class="vp-translate-row">
+        <button class="vp-clear-btn" id="vpClearBtn" type="button">清空</button>
+        <button class="vp-translate-btn" id="vpTranslateBtn" type="button">翻譯並複製</button>
+      </div>
     </div>
   `;
   refs = {
@@ -309,6 +327,7 @@ function buildPanel() {
     total: el.querySelector('#vpTotal'),
     translateInput: el.querySelector('#vpTranslateInput'),
     translateBtn: el.querySelector('#vpTranslateBtn'),
+    clearBtn: el.querySelector('#vpClearBtn'),
   };
   // 輸入框內打字時不要觸發 Z/X 全域快捷鍵；Enter 送出翻譯（Shift+Enter 換行）
   refs.translateInput.addEventListener('keydown', (e) => {
@@ -319,7 +338,14 @@ function buildPanel() {
     }
   });
   refs.translateBtn.addEventListener('click', doTranslate);
+  refs.clearBtn.addEventListener('click', clearTranslation);
   return el;
+}
+
+function clearTranslation() {
+  refs.translateInput.value = '';
+  refs.preview.textContent = '尚無辨識結果';
+  setLamp('idle', '待命 · 按 X 浮動 / 點此後按 Z 錄音');
 }
 
 const LAMP_COLORS = {
@@ -529,7 +555,7 @@ async function toggleFloat() {
     return;
   }
   // 目前在分頁內 -> 浮動置頂
-  const pip = await documentPictureInPicture.requestWindow({ width: 320, height: 380 });
+  const pip = await documentPictureInPicture.requestWindow({ width: 300, height: 290 });
   [...document.styleSheets].forEach(sheet => {
     try {
       const rules = [...sheet.cssRules].map(r => r.cssText).join('\n');
