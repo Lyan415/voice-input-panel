@@ -317,6 +317,14 @@ function buildPanel() {
         <button class="vp-translate-btn" id="vpTranslateBtn" type="button">翻譯並複製</button>
       </div>
     </div>
+    <div class="vp-translate">
+      <div class="vp-translate-hint">英文文法/拼字修正 · Enter 送出</div>
+      <textarea id="vpGrammarInput" placeholder="貼上英文句子…"></textarea>
+      <div class="vp-translate-row">
+        <button class="vp-clear-btn" id="vpGrammarClearBtn" type="button">清空</button>
+        <button class="vp-translate-btn" id="vpGrammarBtn" type="button">修正並複製</button>
+      </div>
+    </div>
   `;
   refs = {
     lamp: el.querySelector('#vpLamp'),
@@ -328,8 +336,11 @@ function buildPanel() {
     translateInput: el.querySelector('#vpTranslateInput'),
     translateBtn: el.querySelector('#vpTranslateBtn'),
     clearBtn: el.querySelector('#vpClearBtn'),
+    grammarInput: el.querySelector('#vpGrammarInput'),
+    grammarBtn: el.querySelector('#vpGrammarBtn'),
+    grammarClearBtn: el.querySelector('#vpGrammarClearBtn'),
   };
-  // 輸入框內打字時不要觸發 Z/X 全域快捷鍵；Enter 送出翻譯（Shift+Enter 換行）
+  // 輸入框內打字時不要觸發 Z/X 全域快捷鍵；Enter 送出（Shift+Enter 換行）
   refs.translateInput.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -339,11 +350,27 @@ function buildPanel() {
   });
   refs.translateBtn.addEventListener('click', doTranslate);
   refs.clearBtn.addEventListener('click', clearTranslation);
+
+  refs.grammarInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      doGrammarFix();
+    }
+  });
+  refs.grammarBtn.addEventListener('click', doGrammarFix);
+  refs.grammarClearBtn.addEventListener('click', clearGrammar);
   return el;
 }
 
 function clearTranslation() {
   refs.translateInput.value = '';
+  refs.preview.textContent = '尚無辨識結果';
+  setLamp('idle', '待命 · 按 X 浮動 / 點此後按 Z 錄音');
+}
+
+function clearGrammar() {
+  refs.grammarInput.value = '';
   refs.preview.textContent = '尚無辨識結果';
   setLamp('idle', '待命 · 按 X 浮動 / 點此後按 Z 錄音');
 }
@@ -400,6 +427,7 @@ async function transcribeAndPolishWithGemini(base64Audio, mimeType, key) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Audio } }] }],
+        generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
       }),
     }
   );
@@ -502,7 +530,10 @@ async function translateWithGemini(text, direction, key) {
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
+      }),
     }
   );
   if (!res.ok) throw new Error('Gemini API 失敗 (' + res.status + ')');
@@ -546,6 +577,58 @@ async function doTranslate() {
   }
 }
 
+async function grammarFixWithGemini(text, key) {
+  const prompt = '請修正以下英文句子的文法與拼字錯誤，保留原本的語氣與意思，不要改寫風格、不要加內容，只輸出修正後的句子本身，不要加任何說明、引號或前後綴：\n\n' + text;
+
+  const res = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
+      }),
+    }
+  );
+  if (!res.ok) throw new Error('Gemini API 失敗 (' + res.status + ')');
+  const data = await res.json();
+  const outText = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+  const usage = data?.usageMetadata || { promptTokenCount: 0, candidatesTokenCount: 0, promptTokensDetails: [] };
+  return { text: outText, usage };
+}
+
+async function doGrammarFix() {
+  const geminiKey = localStorage.getItem('vp_gemini_key') || '';
+  if (!geminiKey) {
+    setLamp('err', '請先在上方填入並儲存 Gemini API Key');
+    return;
+  }
+  const raw = refs.grammarInput.value.trim();
+  if (!raw) return;
+
+  setLamp('proc', '文法修正中…');
+  try {
+    const { text, usage } = await grammarFixWithGemini(raw, geminiKey);
+    refs.preview.textContent = text;
+    const activeWin = isFloating ? pipWin : window;
+    await copyToClipboard(text, activeWin);
+
+    const cost = estimateCost(usage.promptTokensDetails, usage.promptTokenCount, usage.candidatesTokenCount, RATES.TEXT_IN);
+    sessionTotalCost += cost;
+    refs.tokens.textContent = `輸入 ${usage.promptTokenCount} · 輸出 ${usage.candidatesTokenCount}`;
+    refs.cost.textContent = `本次 $${cost.toFixed(4)}`;
+    refs.total.textContent = `$${sessionTotalCost.toFixed(4)}`;
+
+    setLamp('done', '完成 · 修正後文字已複製');
+    refs.grammarInput.value = '';
+    setTimeout(() => { if (!isRecording) setLamp('idle', '待命 · 按 X 浮動 / 點此後按 Z 錄音'); }, 2500);
+  } catch (e) {
+    refs.preview.textContent = '錯誤:' + e.message;
+    setLamp('err', '發生錯誤,請查看下方訊息');
+  }
+}
+
 // ================== 浮動 / 收回 切換 ==================
 async function toggleFloat() {
   if (!pipSupported) return;
@@ -555,7 +638,7 @@ async function toggleFloat() {
     return;
   }
   // 目前在分頁內 -> 浮動置頂
-  const pip = await documentPictureInPicture.requestWindow({ width: 300, height: 290 });
+  const pip = await documentPictureInPicture.requestWindow({ width: 300, height: 380 });
   [...document.styleSheets].forEach(sheet => {
     try {
       const rules = [...sheet.cssRules].map(r => r.cssText).join('\n');
